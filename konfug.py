@@ -71,23 +71,24 @@ class Konfug(object):
                 falsey_expressions=self._falsey_expressions
             )
 
-            self._dataclient = datastore.Client(project=project_id)
+            self._skip_datastore = kwargs.get('skip_datastore', False)
+            if not self._skip_datastore:
+                self._dataclient = datastore.Client(project=project_id)
+            else:
+                self._dataclient = None
 
-            # Little helper function.
-            def fetch_kinds(f):
-                return dict(next(iter(f)))
-
-            self._settings = fetch_kinds(
-                self._dataclient.query(
-                    kind=settings_kind, namespace=namespace
-                ).fetch()
-            )
-            if common_namespace:
-                self._common_settigs = fetch_kinds(
-                    self._dataclient.query(
-                        kind=settings_kind, namespace=common_namespace
+            def fetch_kinds(ns):
+                kinds = {}
+                if self._skip_datastore is False:
+                    kinds = self._dataclient.query(
+                        kind=settings_kind, namespace=ns
                     ).fetch()
-                )
+                    kinds = dict(next(iter(kinds)))
+                return kinds
+
+            self._settings = fetch_kinds(namespace)
+            if common_namespace:
+                self._common_settings = fetch_kinds(common_namespace)
             else:
                 self._common_settings = {}
         except (StopIteration, TypeError, DefaultCredentialsError):
