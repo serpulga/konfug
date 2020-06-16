@@ -11,6 +11,7 @@ setuptools.setup(
     author='Sergio Pulgarin',
     license='BSD',
     author_email='serpulga@gmail.com',
+    url="https://github.com/serpulga/konfug",
     keywords=['konfug', 'datastore', 'configuration'],
     python_requires='>=3.6',
     classifiers=[
