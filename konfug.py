@@ -96,9 +96,9 @@ class Konfug(object):
                 raise
             # Defaults to empty dictionary. Settings will be taken from the
             # environment variables.
-            self._common_settigs = {}
+            self._common_settings = {}
         else:
-            self._common_settigs.update(self._settings)
+            self._common_settings.update(self._settings)
 
     @staticmethod
     def check_metaconfig(kwargs, global_name, kwarg_name, required=True):
@@ -112,8 +112,8 @@ class Konfug(object):
     def raw_setting(self, key, default_val=None, apply_=None, nullable=False):
         if key in os.environ:
             val = os.getenv(key)
-        elif key in self._common_settigs:
-            val = self._common_settigs[key]
+        elif key in self._common_settings:
+            val = self._common_settings[key]
         elif default_val is not None:
             val = default_val
         elif not nullable:
