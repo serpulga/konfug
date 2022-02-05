@@ -5,10 +5,12 @@ import json
 import functools
 
 from google.cloud import datastore
+from google.cloud import secretmanager
 from google.auth.exceptions import DefaultCredentialsError
 
 
 DEFAULT_FALSEY_EXPRESSIONS = ('0', 'false', 0, False, None,)
+UTF8 = 'UTF-8'
 
 
 class KonfugError(Exception):
@@ -16,9 +18,10 @@ class KonfugError(Exception):
 
 
 class KonfugMissingError(KonfugError):
-    def __init__(self, missing_setting):
+    def __init__(self, missing_setting, is_secret=False):
         self._missing_setting = missing_setting
-        self.message = f'Missing setting "{missing_setting}"'
+        space = "setting" if is_secret is False else "secret"
+        self.message = f'Missing {space} "{missing_setting}"'
 
         super(KonfugMissingError, self).__init__(self.message)
 
@@ -71,11 +74,27 @@ class Konfug(object):
                 falsey_expressions=self._falsey_expressions
             )
 
+            self._secret_resource_name_tpl = (
+                f"projects/{project_id}/"
+                f"secrets/{{secret_id}}/"
+                f"versions/latest"
+            )
+
             self._skip_datastore = kwargs.get('skip_datastore', False)
+            self._skip_secret_manager = kwargs.get(
+                                            'skip_secret_manager', False)
+            self._dataclient = None
+            self._secretclient = None
+
             if not self._skip_datastore:
                 self._dataclient = datastore.Client(project=project_id)
             else:
                 self._dataclient = None
+
+            if not self._skip_secret_manager:
+                self._secretclient = secretmanager.SecretManagerServiceClient()
+            else:
+                self._secretclient = None
 
             def fetch_kinds(ns):
                 kinds = {}
@@ -171,3 +190,21 @@ class Konfug(object):
             raise ValueError(f'Not a dict {val}')
         else:
             return dict_
+
+    def secret(self, key, default_val=None, encoding=UTF8):
+        if key in os.environ:
+            val = os.getenv(key)
+        elif self._skip_secret_manager or self._secretclient is None:
+            val = None
+        else:
+            name = self._secret_resource_name_tpl.format(secret_id=key)
+            secret = self._secretclient.access_secret_version(
+                                                    request={"name": name})
+            val = secret.payload.data.decode(encoding)
+
+        if val is None and default_val:
+            val = default_val
+        elif val is None:
+            raise KonfugMissingError(key, is_secret=True)
+
+        return val
