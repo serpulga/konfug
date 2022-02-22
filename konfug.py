@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 
+import abc
 import os
 import json
 import functools
 
+import firebase_admin
 from google.cloud import datastore
 from google.cloud import secretmanager
 from google.auth.exceptions import DefaultCredentialsError
@@ -35,6 +37,93 @@ class KonfugMetaConfigError(KonfugError):
         super(KonfugMetaConfigError, self).__init__(self.message)
 
 
+class HotFugError(KonfugError):
+    def __init__(self, message):
+        self.message = message
+
+        super(HotFugError, self).__init__(self.message)
+
+
+class HotFug(abc.ABC):
+
+    __metaclass__ = abc.ABCMeta
+
+    _FIREBASE = None
+    COLLECTION = None
+    FIREBASE_CREDENTIAL_JSON = None
+
+    def __init__(self, key, default_val=None, apply_=None):
+        self._key = key
+        self._default_val = default_val
+        self._apply = apply_ if apply_ else lambda v: v
+
+    @classmethod
+    def _firebase(cls):
+        if not cls._FIREBASE:
+            try:
+                firebase_admin.get_app()
+            except ValueError:
+                cred = firebase_admin.credentials.Certificate(
+                    cls.FIREBASE_CREDENTIAL_JSON
+                )
+                try:
+                    firebase_admin.initialize_app(cred)
+                except ValueError:
+                    pass
+                except firebase_admin.exceptions.FirebaseError as err:
+                    raise HotFugError("Could not initialize firebase") from err
+
+            # Caching Firebase client at class level.
+            cls._FIREBASE = (
+                firebase_admin.firestore.client().collection(cls.COLLECTION)
+            )
+        return cls._FIREBASE
+
+    def retrieve(self):
+        doc = type(self)._firebase().document(self._key).get()
+        if doc.exists:
+            val = self._apply(doc.to_dict().get('value'))
+        elif self._default_val:
+            val = self._default_val
+        else:
+            val = None
+        return val
+
+    @classmethod
+    def hotfug_cls(cls, credentials, collection):
+        return type(
+            f'_{cls.__name__}',
+            (cls,),
+            {
+                'FIREBASE_CREDENTIAL_JSON': credentials,
+                'COLLECTION': collection
+            }
+        )
+
+
+class HotFugCollection(object):
+    def __init__(self):
+        self._hotconfs = []
+
+    def __getattribute__(self, attribute):
+        value = super(HotFugCollection, self).__getattribute__(attribute)
+
+        if issubclass(type(value), (HotFug,)):
+            value = value.retrieve()
+            if value is None:
+                if attribute in self._hotconfs:
+                    value = self._hotconfs[attribute]
+                else:
+                    raise KonfugMissingError(attribute)
+
+        return value
+
+    def __setattr__(self, name, value):
+        if issubclass(type(value), (HotFug,)):
+            self._hotconfs.append(name)
+        super(HotFugCollection, self).__setattr__(name, value)
+
+
 class Konfug(object):
     def __init__(self, **kwargs):
         try:
@@ -61,9 +150,20 @@ class Konfug(object):
                 required=False
             )
             self._stringlist_separator = stringlist_separator or ','
+
             self._falsey_expressions = kwargs.get(
                 'falsey_expressions', DEFAULT_FALSEY_EXPRESSIONS
             )
+            self._to_bool = functools.partial(
+                type(self).to_bool, falsey_expressions=self._falsey_expressions
+            )
+            self._to_stringlist = functools.partial(
+                type(self).to_stringlist, sep=self._stringlist_separator
+            )
+            self._to_int = int
+            self._to_dict = type(self).to_dict
+            self._to_float = float
+
             force_datastore = cls.to_bool(
                 cls.check_metaconfig(
                     kwargs,
@@ -82,7 +182,12 @@ class Konfug(object):
 
             self._skip_datastore = kwargs.get('skip_datastore', False)
             self._skip_secret_manager = kwargs.get(
-                                            'skip_secret_manager', False)
+                'skip_secret_manager', False
+            )
+            self._skip_firebase = kwargs.get('skip_firebase', False)
+            self._hotcollection = HotFugCollection()
+            self._hot_cls = HotFug
+
             self._dataclient = None
             self._secretclient = None
 
@@ -128,7 +233,12 @@ class Konfug(object):
         if required:
             raise KonfugMetaConfigError(global_name, kwarg_name)
 
-    def raw_setting(self, key, default_val=None, apply_=None, nullable=False):
+    def raw_setting(
+        self, key, default_val=None, apply_=None, nullable=False, hot=False
+    ):
+        if hot and not self._skip_firebase:
+            return self._hot_cls(key, default_val=default_val, apply_=apply_)
+
         if key in os.environ:
             val = os.getenv(key)
         elif key in self._common_settings:
@@ -141,33 +251,33 @@ class Konfug(object):
             val = None
         return apply_(val) if callable(apply_) else val
 
-    def string(self, key, default_val=None):
-        return self.raw_setting(key, default_val=default_val)
+    def string(self, key, default_val=None, hot=False):
+        return self.raw_setting(key, default_val=default_val, hot=hot)
 
-    def flag(self, key, default_val=None):
-        to_bool = functools.partial(
-            type(self).to_bool, falsey_expressions=self._falsey_expressions
-        )
-        return self.raw_setting(key, default_val=default_val, apply_=to_bool)
-
-    def stringlist(self, key, default_val=None):
-        to_stringlist = functools.partial(
-            type(self).to_stringlist, sep=self._stringlist_separator
-        )
+    def flag(self, key, default_val=None, hot=False):
         return self.raw_setting(
-            key, default_val=default_val, apply_=to_stringlist
+            key, default_val=default_val, apply_=self._to_bool, hot=hot
         )
 
-    def integer(self, key, default_val=None):
-        return self.raw_setting(key, default_val=default_val, apply_=int)
-
-    def dictionary(self, key, default_val=None):
+    def stringlist(self, key, default_val=None, hot=False):
         return self.raw_setting(
-            key, default_val=default_val, apply_=type(self).to_dict
+            key, default_val=default_val, apply_=self._to_stringlist, hot=hot
         )
 
-    def floatnum(self, key, default_val=None):
-        return self.raw_setting(key, default_val=default_val, apply_=float)
+    def integer(self, key, default_val=None, hot=False):
+        return self.raw_setting(
+            key, default_val=default_val, apply_=self._to_int, hot=hot
+        )
+
+    def dictionary(self, key, default_val=None, hot=False):
+        return self.raw_setting(
+            key, default_val=default_val, apply_=self._to_dict, hot=hot
+        )
+
+    def floatnum(self, key, default_val=None, hot=False):
+        return self.raw_setting(
+            key, default_val=default_val, apply_=self._to_float, hot=hot
+        )
 
     @staticmethod
     def to_bool(val, falsey_expressions=DEFAULT_FALSEY_EXPRESSIONS):
@@ -208,3 +318,7 @@ class Konfug(object):
             raise KonfugMissingError(key, is_secret=True)
 
         return val
+
+    def hot_settings(self, credentials=None, collection=None):
+        self._hot_cls = HotFug.hotfug_cls(credentials, collection)
+        return self._hotcollection

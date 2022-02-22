@@ -16,7 +16,8 @@ setuptools.setup(
     python_requires='>=3.6',
     install_requires=[
         "google-cloud-secret-manager==2.8.0",
-        "google-cloud-datastore==2.4.0"
+        "google-cloud-datastore==2.4.0",
+        "firebase-admin==5.2.0"
     ],
     classifiers=[
         'Development Status :: 4 - Beta',
