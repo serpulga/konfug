@@ -6,7 +6,7 @@ import setuptools
 setuptools.setup(
     name='konfug',
     py_modules=['konfug'],
-    version='0.0.3',
+    version='0.0.4',
     description='The configuration source for all your projects',
     author='Sergio Pulgarin',
     license='BSD',
