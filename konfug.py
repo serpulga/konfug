@@ -301,7 +301,7 @@ class Konfug(object):
         else:
             return dict_
 
-    def secret(self, key, default_val=None, encoding=UTF8):
+    def secret(self, key, default_val=None, transform=None, encoding=UTF8):
         if key in os.environ:
             val = os.getenv(key)
         elif self._skip_secret_manager or self._secretclient is None:
@@ -311,6 +311,8 @@ class Konfug(object):
             secret = self._secretclient.access_secret_version(
                                                     request={"name": name})
             val = secret.payload.data.decode(encoding)
+            if transform and callable(transform):
+                val = transform(val)
 
         if val is None and default_val:
             val = default_val
