@@ -6,7 +6,7 @@ import setuptools
 setuptools.setup(
     name='konfug',
     py_modules=['konfug'],
-    version='0.0.4',
+    version='0.0.5',
     description='The configuration source for all your projects',
     author='Sergio Pulgarin',
     license='BSD',
@@ -30,6 +30,7 @@ setuptools.setup(
         'Programming Language :: Python :: 3.7',
         'Programming Language :: Python :: 3.8',
         'Programming Language :: Python :: 3.9',
+        'Programming Language :: Python :: 3.10',
         'Programming Language :: Python :: Implementation :: CPython',
         'Programming Language :: Python :: Implementation :: PyPy',
         'Topic :: Software Development',
