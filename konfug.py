@@ -311,8 +311,9 @@ class Konfug(object):
             secret = self._secretclient.access_secret_version(
                                                     request={"name": name})
             val = secret.payload.data.decode(encoding)
-            if transform and callable(transform):
-                val = transform(val)
+
+        if transform and callable(transform) and val:
+            val = transform(val)
 
         if val is None and default_val:
             val = default_val
